@@ -14,9 +14,18 @@ Python2 only for now, as pexif is not Python3-compatible.
 
 ## Important to know
 
-* The program takes as input a CSV file containing a list of coordinates with a corresponding time stamp (structure: `datetime, latitude, longitude`).
+* The program takes as input a CSV file containing a list of coordinates with a corresponding time stamp
 * You can generate the coordinates file manually, or use the `convert` option to extract a clean list of coordinates from a Google location history file (download from [Google Takeout](https://takeout.google.com/settings/takeout)).
 * Files with a time stamp outside the range of the coordinates file will be ignored during the geotagging process.
+* For geotagging, the series of coordinates will be linearly interpolated at a high temporal resolution (by default one location every minute), and each picture will be assigned the location of the nearest interpolated location.
+
+After conversion or manual creation, your location file should look like this (the time stamp may or may not include timezone information). Headers are unimportant (use `--no-header` if they are absent), but the order of the columns should be `datetime, latitude, longitude`.
+```
+dt,latitude,longitude
+2016-03-27 05:00:27.380000+00:00,47.3915287,8.5388783
+2016-03-27 05:01:04.280000+00:00,47.3915245,8.5388878
+2016-03-27 05:10:41.796000+00:00,47.3915511,8.5389044
+```
 
 ## How to use
 
@@ -33,8 +42,7 @@ optional arguments:
                         Coordinates file (datetime, latitude, longitude)
   -n, --no-header       Coordinates file has no header line (default false)
   -f FOLDER, --folder FOLDER
-                        Folder where images are located (images will be
-                        overwritten!)
+                        Folder where images are located (images will be overwritten!)
   -o, --overwrite       Overwrite geodata for images that already have
                         coordinates in EXIF (default false)
   -r, --recursive       Browser folder recursively (default false)
