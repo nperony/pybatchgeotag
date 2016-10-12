@@ -34,23 +34,31 @@ def list_jpegs(folder='.', recursive=False):
 
 def main(argv):
     arg_parser = ArgumentParser()
-    arg_parser.add_argument('-c', '--coordinates', help='Coordinates file (datetime, latitude, longitude)')
+    arg_parser.add_argument('mode', choices=('convert', 'geotag'),
+                            help=('"convert mode": creates a clean locations.csv file from a Google LocationHistory.json'
+                                  'file. Geotagging arguments will be ignored. "geotag" mode: uses the coordinates file'
+                                  ' passed as argument to geotag all the JPEG pictures in the target folder. Conversion'
+                                  ' arguments will be ignored.'))
+    arg_parser.add_argument('-l', '--location-history',
+                            help='(convert mode) Google location history file (usually LocationHistory.json)')
+    arg_parser.add_argument('-s', '--start-date', help='(convert mode) Start date (inclusive) for conversion, format YYYY-MM-DD')
+    arg_parser.add_argument('-e', '--end-date', help='(convert mode) End date (inclusive) for conversion, format YYYY-MM-DD')
+    arg_parser.add_argument('-a', '--accuracy', type=int, default=100,
+                            help='(convert mode) Minimum accuracy of a location for it to be considered valid (default 100 metres)')
+    arg_parser.add_argument('-c', '--coordinates', help='(geotag mode) Coordinates file (datetime, latitude, longitude)')
     arg_parser.add_argument('-n', '--no-header', action='store_true', default=False,
-                            help='Coordinates file has no header line (default false)')
-    arg_parser.add_argument('-f', '--folder', help='Folder where images are located (images will be overwritten!)')
+                            help='(geotag mode) Coordinates file has no header line (default false)')
+    arg_parser.add_argument('-f', '--folder', help='(geotag mode) Folder where images are located (images will be overwritten!)')
     arg_parser.add_argument('-o', '--overwrite', action='store_true', default=False,
-                            help='Overwrite geodata for images that already have coordinates in EXIF (default false)')
+                            help='(geotag mode) Overwrite geodata for images that already have coordinates in EXIF (default false)')
     arg_parser.add_argument('-r', '--recursive', action='store_true', default=False,
-                            help='Browser folder recursively (default false)')
+                            help='(geotag mode) Browse folder recursively (default false)')
     arg_parser.add_argument('-rs', '--resampling_frequency', type=int, default=60,
-                            help='Resampling frequency in seconds (default 60)')
+                            help='(geotag mode) Resampling frequency of the coordinates time series, in seconds (default 60)')
     arg_parser.add_argument('-v', '--verbosity', type=int, default=2, choices=range(1, 4),
                             help='Verbosity level (1-3, default 2)')
     argv = argv[1:]
     args = arg_parser.parse_args(argv)
-    if not argv:  # no arguments given
-        arg_parser.print_help()
-        sys.exit(1)
 
     verbosity_logger = {1: logging.ERROR, 2: logging.INFO, 3: logging.DEBUG}
     log_level = verbosity_logger[args.verbosity]
@@ -61,16 +69,64 @@ def main(argv):
     logger.addHandler(sh)
     logger.setLevel(log_level)
 
-    try:
-        dfloc = pd.read_csv(args.coordinates,
-                            names=['dt', 'latitude', 'longitude'],
-                            parse_dates=['dt'],
-                            skiprows=0 if args.no_header else 1,
-                            dtype={'latitude': np.float64, 'longitude': np.float64})
-    except:
-        logger.error('Could not open/parse coordinates file. '
-                     'Are you sure it is a CSV with 3 columns: datetime (str), latitude (float), longitude (float)?')
-        logger.error('Message: %s' % sys.exc_info()[1])
+    if args.mode == 'convert':
+        if args.location_history is None:
+            logger.error('Required argument: location-history (-l)')
+            return
+        try:
+            dfraw = pd.read_json(args.location_history)
+            sraw = dfraw['locations']  # Series
+            logger.debug('Read %s locations from %s' % (len(sraw), args.location_history))
+            df = pd.DataFrame()
+            df['ts'] = sraw.apply(lambda x: int(x['timestampMs']))
+            df['dt'] = df['ts'].apply(lambda x: datetime.datetime.fromtimestamp(x / 1000))
+            df['longitude'] = sraw.apply(lambda x: x['longitudeE7'] / 10000000.0)
+            df['latitude'] = sraw.apply(lambda x: x['latitudeE7'] / 10000000.0)
+            df['accuracy'] = sraw.apply(lambda x: x['accuracy'])
+            df.sort_values(by='ts', inplace=True)
+            df.set_index('dt', inplace=True)
+        except:
+            logger.error('Could not open/parse location history file.')
+            logger.error('Message: %s' % sys.exc_info()[1])
+            return
+        # filtering DataFrame based on start date, end date, location accuracy
+        if args.start_date:
+            try:
+                print(args.start_date)
+                df = df[df.index >= datetime.datetime.strptime(args.start_date, '%Y-%m-%d')]
+                logger.debug('Filtered to %s locations from %s or later' % (len(df), args.start_date))
+            except:
+                logger.error('Could not filter location history file based on start date. Is the date in YYYY-MM-DD format?')
+                logger.error('Message: %s' % sys.exc_info()[1])
+                return
+        if args.end_date:
+            try:
+                df = df[df.index <= datetime.datetime.strptime(args.end_date, '%Y-%m-%d') + datetime.timedelta(days=1)]
+                logger.debug('Filtered to %s locations from %s or earlier' % (len(df), args.end_date))
+            except:
+                logger.error('Could not filter location history file based on end date. Is the date in YYYY-MM-DD format?')
+                logger.error('Message: %s' % sys.exc_info()[1])
+                return
+        df = df[df.accuracy <= args.accuracy]
+        logger.debug('Filtered to %s locations with minimum accuracy %s metres' % (len(df), args.accuracy))
+        try:
+            if os.path.isfile('locations.csv'):
+                cont = input('WARNING: the file locations.csv exists. Do you want to overwrite it? [N/y] ')
+                if cont not in ['y', 'Y', 'yes', 'YES']:
+                    return
+            df.to_csv('locations.csv', index=True, columns=['latitude', 'longitude'])
+        except:
+            logger.error('Could not export filtered locations to locations.csv')
+            logger.error('Message: %s' % sys.exc_info()[1])
+            return
+        logger.info('Exported %d locations to locations.csv' % len(df))
+        if len(df)>0:
+            logger.info('Range of the exported time series of coordinates: %s to %s' %
+                        (df.index.min().strftime('%Y-%m-%d %H:%M:%S%z'), df.index.max().strftime('%Y-%m-%d %H:%M:%S%z')))
+        return
+
+    if (args.coordinates is None) or (args.folder is None):
+        logger.error('Required arguments: coordinates (-c) folder (-f)')
         return
 
     imgs = list_jpegs(args.folder, args.recursive)
@@ -84,6 +140,18 @@ def main(argv):
          Do you want to continue? [N/y] ''' % len(imgs)
     cont = input(warn_msg)
     if cont not in ['y', 'Y', 'yes', 'YES']:
+        return
+
+    try:
+        dfloc = pd.read_csv(args.coordinates,
+                            names=['dt', 'latitude', 'longitude'],
+                            parse_dates=['dt'],
+                            skiprows=0 if args.no_header else 1,
+                            dtype={'latitude': np.float64, 'longitude': np.float64})
+    except:
+        logger.error('Could not open/parse coordinates file. '
+                     'Are you sure it is a CSV with 3 columns: datetime (str), latitude (float), longitude (float)?')
+        logger.error('Message: %s' % sys.exc_info()[1])
         return
 
     logging.debug('Opened coordinates file "%s", %d locations found' % (args.coordinates, len(dfloc)))
