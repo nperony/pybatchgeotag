@@ -93,6 +93,13 @@ optional arguments:
                         Verbosity level (1-3, default 2)
 ```
 
+## Future changes
+
+* Add timezone support for locations, and pictures
+* Fork pexif and make it Python3-compatible
+* Convert the data structure and interpolation routine to Pure Python, to remove the pandas dependency
+* Anything else? Let me know in the project's issue tracker
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
