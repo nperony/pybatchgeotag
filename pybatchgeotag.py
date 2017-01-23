@@ -202,16 +202,16 @@ def main(argv):
             logger.info('Could not read EXIF data from %s. Skipping file' % img)
             continue
         try:
-            img_dt = exif.DateTime
-            logger.debug('Read DateTime for %s: %s' % (img, img_dt))
+            img_dt = exif.ExtendedEXIF.DateTimeOriginal
+            logger.debug('Read DateTimeOriginal for %s: %s' % (img, img_dt))
         except:
             try:
-                img_dt = exif.ExtendedEXIF.DateTimeOriginal
-                logger.debug('Read DateTimeOriginal for %s: %s' % (img, img_dt))
+                img_dt = exif.ExtendedEXIF.DateTimeDigitized
+                logger.debug('Read DateTimeDigitized for %s: %s' % (img, img_dt))
             except:
                 try:
-                    img_dt = exif.ExtendedEXIF.DateTimeDigitized
-                    logger.debug('Read DateTimeDigitized for %s: %s' % (img, img_dt))
+                    img_dt = exif.DateTime
+                    logger.debug('Read DateTime for %s: %s' % (img, img_dt))
                 except:
                     logger.info('No datetime information found in EXIF for %s. Skipping file' % img)
                     continue
