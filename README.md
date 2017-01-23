@@ -11,12 +11,15 @@ Python2 only for now, as pexif is not Python3-compatible.
 
 * pexif (bundled)
 * pandas >= 0.18.0
+* python-dateutil >= 2.5.3
+* tzlocal >= 1.3
 
 ## Important to know
 
 * The program takes as input a CSV file containing a list of coordinates with a corresponding time stamp
 * You can generate the coordinates file manually, or use the `convert` mode to extract a clean list of coordinates from a Google location history file (download from [Google Takeout](https://takeout.google.com/settings/takeout)).
 * During conversion of a location history file, the coordinates will be given a time stamp in your local time zone.
+* You can indicate that the files you are processing were given a time in a different time zone than your local one by using the `timezone` argument
 * Files with a time stamp outside the range of the coordinates file will be ignored during the geotagging process.
 * For geotagging, the series of coordinates will be linearly interpolated at a high temporal resolution (by default one location every minute), and each picture will be assigned the location of the nearest interpolated location.
 
@@ -82,6 +85,10 @@ optional arguments:
   -f FOLDER, --folder FOLDER
                         (geotag mode) Folder where images are located (images
                         will be overwritten!)
+  -tz TIMEZONE, --timezone TIMEZONE
+                        (geotag mode) Time zone (e.g., "UTC", or
+                        "Europe/Zurich") of the camera. It will be converted
+                        to your local time zone prior to geotagging
   -o, --overwrite       (geotag mode) Overwrite geodata for images that
                         already have coordinates in EXIF (default false)
   -r, --recursive       (geotag mode) Browse folder recursively (default
@@ -95,8 +102,8 @@ optional arguments:
 
 ## Future changes
 
-* Add timezone support for locations, and pictures
 * Fork pexif and make it Python3-compatible
+* Add support for place names instead of coordinates in location history file
 * Convert the data structure and interpolation routine to Pure Python, to remove the pandas dependency
 * Anything else? Let me know in the project's issue tracker
 

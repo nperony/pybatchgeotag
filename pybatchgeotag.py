@@ -7,11 +7,15 @@ import os
 import glob
 import logging
 import datetime
+import pytz
 import numpy as np
 import pandas as pd
 from argparse import ArgumentParser
 from pexif import JpegFile
+from tzlocal import get_localzone
 
+# we need to manually specify datetime formats because date is often weirdly written, like "2016:12:31"
+# this confuses automatic parsers such as python-dateutil's
 datetime_formats = ['%Y:%m:%d %H:%M:%S',
                     '%Y:%m:%d %H:%M:%S%Z',
                     '%Y-%m-%d %H:%M:%S',
@@ -49,6 +53,8 @@ def main(argv):
     arg_parser.add_argument('-n', '--no-header', action='store_true', default=False,
                             help='(geotag mode) Coordinates file has no header line (default false)')
     arg_parser.add_argument('-f', '--folder', help='(geotag mode) Folder where images are located (images will be overwritten!)')
+    arg_parser.add_argument('-tz', '--timezone',
+                            help='(geotag mode) Time zone (e.g., "UTC", or "Europe/Zurich") of the camera. It will be converted to your local time zone prior to geotagging')
     arg_parser.add_argument('-o', '--overwrite', action='store_true', default=False,
                             help='(geotag mode) Overwrite geodata for images that already have coordinates in EXIF (default false)')
     arg_parser.add_argument('-r', '--recursive', action='store_true', default=False,
@@ -79,7 +85,7 @@ def main(argv):
             logger.debug('Read %s locations from %s' % (len(sraw), args.location_history))
             df = pd.DataFrame()
             df['ts'] = sraw.apply(lambda x: int(x['timestampMs']))
-            df['dt'] = df['ts'].apply(lambda x: datetime.datetime.fromtimestamp(x / 1000))
+            df['dt'] = df['ts'].apply(lambda x: datetime.datetime.fromtimestamp(x / 1000))  # produces naive timestamps in local timezone
             df['longitude'] = sraw.apply(lambda x: x['longitudeE7'] / 10000000.0)
             df['latitude'] = sraw.apply(lambda x: x['latitudeE7'] / 10000000.0)
             df['accuracy'] = sraw.apply(lambda x: x['accuracy'])
@@ -129,6 +135,16 @@ def main(argv):
         logger.error('Required arguments: coordinates (-c) folder (-f)')
         return
 
+    if args.timezone is not None:
+        try:
+            cam_tz = pytz.timezone(args.timezone)
+        except:
+            logger.error('Argument does not seem to be a valid timezone: %s' % args.timezone)
+            return
+    else:
+        cam_tz = get_localzone()
+    local_tz = get_localzone()
+
     imgs = list_jpegs(args.folder, args.recursive)
 
     if not imgs:  # no image files found during scan
@@ -155,6 +171,9 @@ def main(argv):
         return
 
     logging.debug('Opened coordinates file "%s", %d locations found' % (args.coordinates, len(dfloc)))
+
+    # localising timestamps to local time zone
+    dfloc.dt = dfloc.dt.apply(lambda x: pytz.utc.localize(x).astimezone(local_tz).replace(tzinfo=None))
     dfloc.set_index('dt', inplace=True)
     dfloc.sort_index(inplace=True)
 
@@ -184,15 +203,15 @@ def main(argv):
             continue
         try:
             img_dt = exif.DateTime
-            logger.debug('Read DateTime for %s' % img)
+            logger.debug('Read DateTime for %s: %s' % (img, img_dt))
         except:
             try:
                 img_dt = exif.ExtendedEXIF.DateTimeOriginal
-                logger.debug('Read DateTimeOriginal for %s' % img)
+                logger.debug('Read DateTimeOriginal for %s: %s' % (img, img_dt))
             except:
                 try:
                     img_dt = exif.ExtendedEXIF.DateTimeDigitized
-                    logger.debug('Read DateTimeDigitized for %s' % img)
+                    logger.debug('Read DateTimeDigitized for %s: %s' % (img, img_dt))
                 except:
                     logger.info('No datetime information found in EXIF for %s. Skipping file' % img)
                     continue
@@ -206,8 +225,9 @@ def main(argv):
         if not isinstance(img_dt, datetime.datetime):  # parsing failed:
             logger.info('Could not parse valid datetime information from EXIF for %s. Skipping file' % img)
             continue
-        logger.debug('Parsed datetime information for %s with format "%s": %s' %
-                     (img, dtf, img_dt.strftime('%Y-%m-%d %H:%M:%S%z')))
+
+        # localising image to local timezone, since location timestamps are local
+        img_dt = cam_tz.localize(img_dt).astimezone(local_tz).replace(tzinfo=None)
 
         if not (dt_min <= img_dt <= dt_max):
             logger.info('Datetime information for %s (%s) is outside of target range. Skipping file' %
